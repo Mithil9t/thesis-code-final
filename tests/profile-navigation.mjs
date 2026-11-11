@@ -1,0 +1,43 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
+const server=fs.readFileSync(path.join(root,'server/src/index.js'),'utf8');
+const client=fs.readFileSync(path.join(root,'client/src/StudentPages.jsx'),'utf8');
+const shell=fs.readFileSync(path.join(root,'client/src/App.jsx'),'utf8');
+const styles=fs.readFileSync(path.join(root,'client/src/styles.css'),'utf8');
+const getFunction=(name,next)=>server.slice(server.indexOf(`function ${name}(`),server.indexOf(`function ${next}(`));
+const src=getFunction('fail','asyncRoute')+getFunction('optionalString','emailString')+getFunction('cleanDate','validTelephone')+getFunction('validTelephone','validatePersonalDates')+getFunction('validatePersonalDates','idParamUnfindable');
+// Last function extract is bounded by a known constant.
+const validationSource=src.slice(0,src.indexOf('const userFields='));
+const context=vm.createContext({Date,Error,Number, RegExp});
+vm.runInContext(validationSource+ '\nthis.checkPhone=validTelephone;this.checkDate=cleanDate;this.checkPair=validatePersonalDates;',context);
+assert.equal(context.checkPhone('07123456789'),'07123456789');
+assert.equal(context.checkPhone('1234567'),'1234567');
+assert.equal(context.checkPhone('123456789012345'),'123456789012345');
+assert.equal(context.checkPhone(''),null);
+for(const invalid of ['+447123456789','12345abc','12 345678',' 123456789','123456789 ','123456','1234567890123456']){
+  assert.throws(()=>context.checkPhone(invalid),{status:400},`Should reject ${invalid}`);
+}
+assert.equal(context.checkDate('2024-02-29'),'2024-02-29');
+for(const bad of ['2023-02-29','2026-13-01','2026-01-99','12/12/2026'])assert.throws(()=>context.checkDate(bad),{status:400},`Invalid date ${bad}`);
+assert.doesNotThrow(()=>context.checkPair('2000-12-12','2026-12-12'));
+assert.throws(()=>context.checkPair('2026-12-12','1990-12-12'),{status:400});
+assert.throws(()=>context.checkPair('2099-01-01','2099-01-02'),{status:400});
+assert.match(client,/<PhoneNumberInput label="Telephone number \(7-15 digits\)"/);
+assert.match(fs.readFileSync(path.join(root,'client/src/ui.jsx'),'utf8'),/maxLength=\{PHONE_MAX_LENGTH\}/);
+assert.match(client,/min=\{form\.date_of_birth\|\|undefined\}/);
+assert.match(client,/What am I applying for\?/);
+assert.match(client,/not an application for admission/);
+assert.doesNotMatch(shell,/Switch to (?:admin|student) demo/);
+assert.doesNotMatch(shell,/sidebar-switch|switchAccount/);
+assert.match(shell,/<Link to="\/student\/profile" className="top-user top-user-link"/);
+assert.match(shell,/aria-label="Open my student profile"/);
+assert.match(shell,/desktopSidebarCollapsed|desktopCollapsed/);
+assert.match(shell,/setSidebarOpen\(open=>!open\)/);
+assert.match(shell,/aria-controls="workspace-sidebar"/);
+assert.match(styles,/\.sidebar-nav\{flex:1 1 auto;min-height:0;overflow-y:auto/);
+assert.doesNotMatch(shell,/className="sidebar-close/);
+console.log('PASS: telephone length/characters, strict dates and chronology, demo form explanation, topbar profile link, no account-switch button, and responsive sidebar controls.');
